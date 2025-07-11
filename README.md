@@ -1,0 +1,1 @@
+# safari-plugin-ChatGPTVoiceControl
