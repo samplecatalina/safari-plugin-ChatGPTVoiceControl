@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Voice Control for ChatGPT (Ultimate)
+// @name         Voice Control for ChatGPT (Ultimate Bilingual)
 // @namespace    http://tampermonkey.net/
 // @version      1.0.0
 // @description  Ultimate voice control for ChatGPT - All issues fixed
-// @author       You
+// @author       samplecatalina
 // @match        https://chatgpt.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=openai.com
 // @grant        none
@@ -154,6 +154,7 @@
             this.autoRestart = false;
             this.recordingTimeout = null;
             this.maxRecordingTime = 240000; // 4 minutes
+            this.currentLanguage = this.getStoredLanguage(); // Load saved language preference
             
             log("🎙️ Initializing ULTIMATE voice recognition...");
             
@@ -169,15 +170,118 @@
             this.recognition.continuous = true;
             this.recognition.interimResults = true;
             this.recognition.maxAlternatives = 1;
-            this.recognition.lang = 'en-US';
+            this.recognition.lang = this.currentLanguage;
             
             log("Voice recognition configured:", {
                 continuous: this.recognition.continuous,
                 interimResults: this.recognition.interimResults,
-                lang: this.recognition.lang
+                lang: this.recognition.lang,
+                currentLanguage: this.currentLanguage
             });
             
             this.setupEventHandlers();
+        }
+        
+        // Language management methods
+        getStoredLanguage() {
+            try {
+                return localStorage.getItem('voiceControlLanguage') || 'en-US';
+            } catch (e) {
+                log("Could not access localStorage, defaulting to en-US");
+                return 'en-US';
+            }
+        }
+        
+        setLanguage(language) {
+            log(`🌍 Switching language to: ${language}`);
+            this.currentLanguage = language;
+            this.recognition.lang = language;
+            
+            try {
+                localStorage.setItem('voiceControlLanguage', language);
+            } catch (e) {
+                log("Could not save language to localStorage");
+            }
+            
+            // Update all UI elements to reflect new language
+            this.updateLanguageUI();
+            this.updateUI(); // Update recording button text
+            this.updateTestButtonText(); // Update test button text
+        }
+        
+        updateTestButtonText() {
+            const testBtn = document.getElementById('ultimate-test-btn');
+            if (testBtn) {
+                const labels = this.getLocalizedLabels();
+                testBtn.textContent = labels.testButton;
+            }
+        }
+        
+        clearTextarea() {
+            log("🧹 Clearing textarea for new recording session");
+            
+            if (!this.textarea) {
+                error("No textarea available for clearing");
+                return false;
+            }
+            
+            try {
+                const isContentEditable = this.textarea.isContentEditable || this.textarea.getAttribute('contenteditable') === 'true';
+                
+                // Clear the content based on the element's actual type
+                if (isContentEditable) {
+                    this.textarea.innerText = '';
+                } else if ('value' in this.textarea) {
+                    const prototype = Object.getPrototypeOf(this.textarea);
+                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+                    if (nativeInputValueSetter) {
+                        nativeInputValueSetter.call(this.textarea, '');
+                    } else {
+                        this.textarea.value = ''; // Fallback
+                    }
+                } else {
+                    this.textarea.textContent = '';
+                }
+                
+                // Dispatch input event to notify React/frameworks of the change
+                this.textarea.dispatchEvent(new Event("input", { bubbles: true }));
+                
+                log("✅ Textarea cleared successfully");
+                return true;
+                
+            } catch (e) {
+                error("Failed to clear textarea:", e);
+                return false;
+            }
+        }
+        
+        updateLanguageUI() {
+            const languageBtn = document.getElementById('ultimate-language-btn');
+            if (languageBtn) {
+                const languageNames = {
+                    'en-US': '🇺🇸 English',
+                    'zh-CN': '🇨🇳 中文'
+                };
+                languageBtn.textContent = languageNames[this.currentLanguage] || '🌍 Language';
+            }
+        }
+        
+        getLocalizedErrorMessages() {
+            if (this.currentLanguage === 'zh-CN') {
+                return {
+                    notAllowed: '❌ 麦克风权限被拒绝。\n\n请：\n1. 在浏览器设置中允许麦克风权限\n2. 刷新页面\n3. 重试',
+                    noSpeech: '❌ 未检测到语音。\n\n请：\n1. 说话声音大一些\n2. 检查麦克风\n3. 减少背景噪音',
+                    audioCapture: '❌ 未找到麦克风。\n\n请：\n1. 连接麦克风\n2. 检查设备设置\n3. 刷新页面',
+                    network: '❌ 网络错误。\n\n请：\n1. 检查网络连接\n2. 重试'
+                };
+            } else {
+                return {
+                    notAllowed: '❌ Microphone permission denied.\n\nPlease:\n1. Allow microphone in browser settings\n2. Refresh the page\n3. Try again',
+                    noSpeech: '❌ No speech detected.\n\nPlease:\n1. Speak louder\n2. Check microphone\n3. Reduce background noise',
+                    audioCapture: '❌ No microphone found.\n\nPlease:\n1. Connect a microphone\n2. Check device settings\n3. Refresh the page',
+                    network: '❌ Network error.\n\nPlease:\n1. Check internet connection\n2. Try again'
+                };
+            }
         }
         
         setupEventHandlers() {
@@ -242,18 +346,21 @@
                 
                 let alertMessage = `❌ Voice error: ${event.error}`;
                 
+                // Get localized error messages
+                const errorMessages = this.getLocalizedErrorMessages();
+                
                 switch (event.error) {
                     case 'not-allowed':
-                        alertMessage = '❌ Microphone permission denied.\n\nPlease:\n1. Allow microphone in Safari settings\n2. Refresh the page\n3. Try again';
+                        alertMessage = errorMessages.notAllowed;
                         break;
                     case 'no-speech':
-                        alertMessage = '❌ No speech detected.\n\nPlease:\n1. Speak louder\n2. Check microphone\n3. Reduce background noise';
+                        alertMessage = errorMessages.noSpeech;
                         break;
                     case 'audio-capture':
-                        alertMessage = '❌ No microphone found.\n\nPlease:\n1. Connect a microphone\n2. Check device settings\n3. Refresh the page';
+                        alertMessage = errorMessages.audioCapture;
                         break;
                     case 'network':
-                        alertMessage = '❌ Network error.\n\nPlease:\n1. Check internet connection\n2. Try again';
+                        alertMessage = errorMessages.network;
                         break;
                     case 'aborted':
                         log("Recognition aborted (normal for stop button)");
@@ -379,8 +486,26 @@
             
             try {
                 log("🎙️ Starting voice recognition...");
-                const isContentEditable = this.textarea.isContentEditable || this.textarea.getAttribute('contenteditable') === 'true';
-                this.initialText = isContentEditable ? this.textarea.innerText : this.textarea.value;
+                
+                // Clear the textarea for a fresh start
+                const clearSuccess = this.clearTextarea();
+                
+                // Provide visual feedback for clearing
+                if (clearSuccess) {
+                    this.textarea.style.border = '3px solid #ff9500';
+                    this.textarea.style.boxShadow = '0 0 15px #ff9500';
+                    setTimeout(() => {
+                        this.textarea.style.border = '';
+                        this.textarea.style.boxShadow = '';
+                    }, 1000);
+                    
+                    // Show notification that input was cleared
+                    const labels = this.getLocalizedLabels();
+                    this.showNotification(labels.inputCleared, '#ff9500');
+                }
+                
+                // Reset initial text since we just cleared it
+                this.initialText = '';
                 this.sessionTranscript = '';
                 this.autoRestart = true;
                 this.recognition.start();
@@ -402,16 +527,61 @@
         updateUI() {
             const button = document.getElementById('ultimate-voice-btn');
             if (button) {
+                const labels = this.getLocalizedLabels();
                 if (this.isRecording) {
-                    button.textContent = '🔴 Recording... (Click to Stop)';
+                    button.textContent = labels.recording;
                     button.style.backgroundColor = '#ff0000';
                     button.style.animation = 'pulse 1s infinite';
                 } else {
-                    button.textContent = '🎤 Start Recording';
+                    button.textContent = labels.startRecording;
                     button.style.backgroundColor = '#007bff';
                     button.style.animation = 'none';
                 }
             }
+        }
+        
+        getLocalizedLabels() {
+            if (this.currentLanguage === 'zh-CN') {
+                return {
+                    startRecording: '🎤 开始录音',
+                    recording: '🔴 录音中... (点击停止)',
+                    testButton: '⚡ 测试',
+                    inputCleared: '🧹 输入框已清空，准备录音'
+                };
+            } else {
+                return {
+                    startRecording: '🎤 Start Recording',
+                    recording: '🔴 Recording... (Click to Stop)',
+                    testButton: '⚡ Ultimate Test',
+                    inputCleared: '🧹 Input cleared, ready to record'
+                };
+            }
+        }
+        
+        showNotification(message, color = '#6f42c1') {
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed !important;
+                top: 20px !important;
+                right: 20px !important;
+                background: ${color} !important;
+                color: white !important;
+                padding: 15px 20px !important;
+                border-radius: 10px !important;
+                z-index: 1000000 !important;
+                font-weight: bold !important;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important;
+                animation: slideIn 0.3s ease-out !important;
+            `;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.animation = 'slideOut 0.3s ease-in';
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            }, 2000);
         }
     }
     
@@ -427,6 +597,14 @@
                 0% { opacity: 1; transform: scale(1); }
                 50% { opacity: 0.7; transform: scale(1.05); }
                 100% { opacity: 1; transform: scale(1); }
+            }
+            @keyframes slideIn {
+                0% { opacity: 0; transform: translateX(100%); }
+                100% { opacity: 1; transform: translateX(0); }
+            }
+            @keyframes slideOut {
+                0% { opacity: 1; transform: translateX(0); }
+                100% { opacity: 0; transform: translateX(100%); }
             }
             .ultimate-voice-ui {
                 position: relative !important;
@@ -454,7 +632,8 @@
         // Ultimate voice button
         const voiceBtn = document.createElement('button');
         voiceBtn.id = 'ultimate-voice-btn';
-        voiceBtn.textContent = '🎤 Start Recording';
+        const labels = voiceControl.getLocalizedLabels();
+        voiceBtn.textContent = labels.startRecording;
         voiceBtn.style.cssText = `
             background: #007bff !important;
             color: white !important;
@@ -476,7 +655,8 @@
         
         // Ultimate test button
         const testBtn = document.createElement('button');
-        testBtn.textContent = '⚡ Ultimate Test';
+        testBtn.id = 'ultimate-test-btn';
+        testBtn.textContent = labels.testButton;
         testBtn.style.cssText = `
             background: #28a745 !important;
             color: white !important;
@@ -494,23 +674,69 @@
             
             // Wait for DOM to be ready
             setTimeout(() => {
-                const success = ultimateTextInsertion(textarea, "🚀 APPEND TEST!");
+                const testText = voiceControl.currentLanguage === 'zh-CN' ? "🚀 测试文本!" : "🚀 APPEND TEST!";
+                const success = ultimateTextInsertion(textarea, testText);
+                const successText = voiceControl.currentLanguage === 'zh-CN' ? '✅ 成功!' : '✅ Appended!';
+                const failText = voiceControl.currentLanguage === 'zh-CN' ? '❌ 失败' : '❌ Failed';
+                
                 if (success) {
-                    testBtn.textContent = '✅ Appended!';
+                    testBtn.textContent = successText;
                     setTimeout(() => {
-                        testBtn.textContent = '⚡ Ultimate Test';
+                        testBtn.textContent = labels.testButton;
                     }, 2000);
                 } else {
-                    testBtn.textContent = '❌ Failed';
+                    testBtn.textContent = failText;
                     setTimeout(() => {
-                        testBtn.textContent = '⚡ Ultimate Test';
+                        testBtn.textContent = labels.testButton;
                     }, 2000);
                 }
             }, 100);
         };
         
-        container.appendChild(voiceBtn);
+        // Language selector button
+        const languageBtn = document.createElement('button');
+        languageBtn.id = 'ultimate-language-btn';
+        const languageNames = {
+            'en-US': '🇺🇸 English',
+            'zh-CN': '🇨🇳 中文'
+        };
+        languageBtn.textContent = languageNames[voiceControl.currentLanguage] || '🌍 Language';
+        languageBtn.style.cssText = `
+            background: #6f42c1 !important;
+            color: white !important;
+            border: none !important;
+            padding: 15px 20px !important;
+            border-radius: 10px !important;
+            cursor: pointer !important;
+            font-weight: bold !important;
+            font-size: 16px !important;
+            box-shadow: 0 4px 15px rgba(111,66,193,0.3) !important;
+            transition: all 0.3s ease !important;
+        `;
+        
+        languageBtn.onclick = () => {
+            log("🌍 Language button clicked");
+            
+            // Toggle between English and Chinese
+            const newLanguage = voiceControl.currentLanguage === 'en-US' ? 'zh-CN' : 'en-US';
+            voiceControl.setLanguage(newLanguage);
+            
+            // Visual feedback
+            languageBtn.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                languageBtn.style.transform = 'scale(1)';
+            }, 150);
+            
+            // Show language switch notification
+            const switchMessage = newLanguage === 'zh-CN' ? 
+                `🌍 语言已切换至 ${languageNames[newLanguage]}` : 
+                `🌍 Language switched to ${languageNames[newLanguage]}`;
+            voiceControl.showNotification(switchMessage, '#6f42c1');
+        };
+
         container.appendChild(testBtn);
+        container.appendChild(languageBtn);
+        container.appendChild(voiceBtn);
         
         // Insert the UI container above the main chat form or textarea
         try {
