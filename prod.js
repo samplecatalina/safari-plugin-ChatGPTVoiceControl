@@ -817,17 +817,50 @@
         // Insert the UI container above the main chat form or textarea
         try {
             if (currentPlatform === 'gemini') {
-                // For Gemini, try to find the input container
-                const richTextarea = textarea.closest('rich-textarea');
-                const inputContainer = richTextarea || textarea.closest('.input-area-container') || textarea.parentElement;
+                // For Gemini, we need to find the outer container to avoid being hidden
+                // Try multiple strategies to find the best insertion point
+                let insertionPoint = null;
                 
-                if (inputContainer) {
-                    inputContainer.before(container);
-                    log("✅ UI inserted before Gemini input container");
-                } else {
-                    textarea.parentElement.before(container);
-                    log("✅ UI inserted before Gemini textarea parent");
+                // Strategy 1: Find the main input area wrapper (go up several levels)
+                const richTextarea = textarea.closest('rich-textarea');
+                if (richTextarea) {
+                    // Try to find a parent container that's not inside the input box
+                    let parent = richTextarea.parentElement;
+                    let attempts = 0;
+                    while (parent && attempts < 10) {
+                        // Look for containers that typically wrap the entire input area
+                        if (parent.classList.contains('input-area') || 
+                            parent.classList.contains('bottom-bar') ||
+                            parent.classList.contains('conversation-container') ||
+                            parent.tagName === 'MAIN' ||
+                            parent.id.includes('input-area')) {
+                            insertionPoint = parent;
+                            log(`✅ Found Gemini insertion point at level ${attempts}: ${parent.tagName}.${parent.className}`);
+                            break;
+                        }
+                        parent = parent.parentElement;
+                        attempts++;
+                    }
                 }
+                
+                // Strategy 2: Use fixed positioning at the bottom if we can't find a good spot
+                if (!insertionPoint) {
+                    log("⚠️ Using fixed positioning for Gemini UI");
+                    container.style.position = 'fixed !important';
+                    container.style.bottom = '20px !important';
+                    container.style.left = '50% !important';
+                    container.style.transform = 'translateX(-50%) !important';
+                    container.style.width = 'calc(100% - 40px) !important';
+                    container.style.maxWidth = '800px !important';
+                    document.body.appendChild(container);
+                    log("✅ UI inserted with fixed positioning for Gemini");
+                    return true;
+                }
+                
+                // Insert before the found insertion point
+                insertionPoint.insertAdjacentElement('beforebegin', container);
+                log("✅ UI inserted before Gemini container");
+                
             } else {
                 // ChatGPT and other platforms
                 const form = textarea.closest('form');
