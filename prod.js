@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         Voice Control for ChatGPT (Ultimate Bilingual)
+// @name         Voice Control for ChatGPT & Gemini (Ultimate Bilingual)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Ultimate voice control for ChatGPT - All issues fixed
+// @version      2.0.0
+// @description  Ultimate voice control for ChatGPT and Google Gemini - Bilingual support
 // @author       samplecatalina
 // @match        https://chatgpt.com/*
+// @match        https://gemini.google.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=openai.com
 // @grant        none
 // @run-at       document-end
@@ -30,6 +31,20 @@
     }
     
     log("🚀 ULTIMATE Voice Control starting...");
+    
+    // Platform detection
+    function detectPlatform() {
+        const hostname = window.location.hostname;
+        if (hostname.includes('chatgpt.com')) {
+            return 'chatgpt';
+        } else if (hostname.includes('gemini.google.com')) {
+            return 'gemini';
+        }
+        return 'unknown';
+    }
+    
+    const currentPlatform = detectPlatform();
+    log(`🌐 Detected platform: ${currentPlatform}`);
     
     // Ultimate text insertion function - SAFE MODE
     function ultimateTextInsertion(element, text) {
@@ -97,29 +112,62 @@
     }
 
     function findChatGPTElements(retryCount = 0) {
-        // Prefer the official prompt textarea first
-        const preferredSelectors = [
-            'textarea[data-testid="prompt-textarea"]',
-            'form textarea[data-testid="prompt-textarea"]'
-        ];
+        let preferredSelectors = [];
+        let fallbackSelectors = [];
         
+        // Platform-specific selectors
+        if (currentPlatform === 'chatgpt') {
+            // ChatGPT-specific selectors
+            preferredSelectors = [
+                'textarea[data-testid="prompt-textarea"]',
+                'form textarea[data-testid="prompt-textarea"]'
+            ];
+            
+            fallbackSelectors = [
+                'textarea[placeholder*="Message"]',
+                'textarea[placeholder*="message"]',
+                'form textarea',
+                'textarea',
+                '[contenteditable="true"]'
+            ];
+        } else if (currentPlatform === 'gemini') {
+            // Gemini-specific selectors
+            preferredSelectors = [
+                'rich-textarea[data-test-id="text-input"]',
+                'rich-textarea .ql-editor',
+                'div.ql-editor[contenteditable="true"]',
+                '[data-test-id="text-input"] .ql-editor'
+            ];
+            
+            fallbackSelectors = [
+                '.ql-editor[contenteditable="true"]',
+                '[contenteditable="true"][role="textbox"]',
+                'rich-textarea [contenteditable="true"]',
+                '[contenteditable="true"]',
+                'textarea'
+            ];
+        } else {
+            // Generic selectors for unknown platforms
+            preferredSelectors = [
+                'textarea',
+                '[contenteditable="true"]'
+            ];
+        }
+        
+        // Try preferred selectors first
         for (const selector of preferredSelectors) {
-            const el = document.querySelector(selector);
-            if (el && isVisible(el)) {
-                log(`✅ Found preferred textarea with: ${selector}`);
-                return { textarea: el };
+            try {
+                const el = document.querySelector(selector);
+                if (el && isVisible(el)) {
+                    log(`✅ Found preferred textarea with: ${selector}`);
+                    return { textarea: el };
+                }
+            } catch (e) {
+                error(`Preferred selector failed: ${selector}`, e);
             }
         }
 
-        // Fallback selectors (keep original list but ensure visibility)
-        const fallbackSelectors = [
-            'textarea[placeholder*="Message"]',
-            'textarea[placeholder*="message"]',
-            'form textarea',
-            'textarea',
-            '[contenteditable="true"]'
-        ];
-        
+        // Fallback selectors
         for (const selector of fallbackSelectors) {
             try {
                 const candidates = Array.from(document.querySelectorAll(selector));
@@ -613,6 +661,15 @@
         `;
         document.head.appendChild(style);
         
+        // Get platform display name and color
+        const platformInfo = {
+            'chatgpt': { name: 'ChatGPT', color: '#10a37f' },
+            'gemini': { name: 'Gemini', color: '#8e8ea0' },
+            'unknown': { name: 'Unknown', color: '#667eea' }
+        };
+        
+        const platform = platformInfo[currentPlatform] || platformInfo['unknown'];
+        
         const container = document.createElement('div');
         container.id = 'ultimate-voice-ui';
         container.className = 'ultimate-voice-ui';
@@ -623,11 +680,30 @@
             padding: 15px !important;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
             border-radius: 12px !important;
-            border: 2px solid #007bff !important;
+            border: 2px solid ${platform.color} !important;
             box-shadow: 0 6px 20px rgba(0,123,255,0.25) !important;
             z-index: 999999 !important;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
+            position: relative !important;
         `;
+        
+        // Add platform indicator badge
+        const platformBadge = document.createElement('div');
+        platformBadge.style.cssText = `
+            position: absolute !important;
+            top: -10px !important;
+            left: 10px !important;
+            background: ${platform.color} !important;
+            color: white !important;
+            padding: 4px 12px !important;
+            border-radius: 12px !important;
+            font-size: 11px !important;
+            font-weight: bold !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+            z-index: 1 !important;
+        `;
+        platformBadge.textContent = `🎯 ${platform.name}`;
+        container.appendChild(platformBadge);
         
         // Ultimate voice button
         const voiceBtn = document.createElement('button');
@@ -740,14 +816,29 @@
         
         // Insert the UI container above the main chat form or textarea
         try {
-            const form = textarea.closest('form');
-            if (form) {
-                form.before(container);
-                log("✅ UI inserted before form");
+            if (currentPlatform === 'gemini') {
+                // For Gemini, try to find the input container
+                const richTextarea = textarea.closest('rich-textarea');
+                const inputContainer = richTextarea || textarea.closest('.input-area-container') || textarea.parentElement;
+                
+                if (inputContainer) {
+                    inputContainer.before(container);
+                    log("✅ UI inserted before Gemini input container");
+                } else {
+                    textarea.parentElement.before(container);
+                    log("✅ UI inserted before Gemini textarea parent");
+                }
             } else {
-                // Fallback: insert before the textarea's direct parent
-                textarea.parentElement.before(container);
-                log("✅ UI inserted before textarea parent");
+                // ChatGPT and other platforms
+                const form = textarea.closest('form');
+                if (form) {
+                    form.before(container);
+                    log("✅ UI inserted before form");
+                } else {
+                    // Fallback: insert before the textarea's direct parent
+                    textarea.parentElement.before(container);
+                    log("✅ UI inserted before textarea parent");
+                }
             }
         } catch (e) {
             error("Failed to insert UI intelligently, falling back to body", e);
