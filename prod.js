@@ -214,15 +214,16 @@
             
             this.recognition = new webkitSpeechRecognition();
             
-            // Optimal settings for reliability
+            // Optimal settings for MAXIMUM accuracy and reliability
             this.recognition.continuous = true;
             this.recognition.interimResults = true;
-            this.recognition.maxAlternatives = 1;
+            this.recognition.maxAlternatives = 3; // Get multiple alternatives for better accuracy
             this.recognition.lang = this.currentLanguage;
             
             log("Voice recognition configured:", {
                 continuous: this.recognition.continuous,
                 interimResults: this.recognition.interimResults,
+                maxAlternatives: this.recognition.maxAlternatives,
                 lang: this.recognition.lang,
                 currentLanguage: this.currentLanguage
             });
@@ -366,12 +367,35 @@
 
                 for (let i = event.resultIndex; i < event.results.length; i++) {
                     const result = event.results[i];
-                    const transcript = result[0].transcript;
-
+                    
+                    // Use confidence-based selection for better accuracy
+                    let bestTranscript = result[0].transcript;
+                    let bestConfidence = result[0].confidence || 0;
+                    
+                    // Check all alternatives and pick the one with highest confidence
+                    for (let j = 0; j < result.length; j++) {
+                        const alternative = result[j];
+                        const confidence = alternative.confidence || 0;
+                        
+                        log(`Alternative ${j}: "${alternative.transcript}" (confidence: ${confidence.toFixed(3)})`);
+                        
+                        if (confidence > bestConfidence) {
+                            bestTranscript = alternative.transcript;
+                            bestConfidence = confidence;
+                        }
+                    }
+                    
+                    // Only accept results with reasonable confidence (>0.5) for final results
                     if (result.isFinal) {
-                        finalTranscriptSinceLastResult += transcript;
+                        if (bestConfidence > 0.5 || result.length === 1) {
+                            log(`✅ Final transcript accepted: "${bestTranscript}" (confidence: ${bestConfidence.toFixed(3)})`);
+                            finalTranscriptSinceLastResult += bestTranscript;
+                        } else {
+                            log(`⚠️ Low confidence final result rejected: ${bestConfidence.toFixed(3)}`);
+                        }
                     } else {
-                        interimTranscript += transcript;
+                        // For interim results, always show the best alternative
+                        interimTranscript += bestTranscript;
                     }
                 }
 
@@ -793,8 +817,12 @@
         languageBtn.onclick = () => {
             log("🌍 Language button clicked");
             
-            // Toggle between English and Chinese
-            const newLanguage = voiceControl.currentLanguage === 'en-US' ? 'zh-CN' : 'en-US';
+            // Cycle through all available languages
+            const languages = ['en-US', 'zh-CN'];
+            const currentIndex = languages.indexOf(voiceControl.currentLanguage);
+            const nextIndex = (currentIndex + 1) % languages.length;
+            const newLanguage = languages[nextIndex];
+            
             voiceControl.setLanguage(newLanguage);
             
             // Visual feedback
@@ -804,7 +832,7 @@
             }, 150);
             
             // Show language switch notification
-            const switchMessage = newLanguage === 'zh-CN' ? 
+            const switchMessage = newLanguage.startsWith('zh') ? 
                 `🌍 语言已切换至 ${languageNames[newLanguage]}` : 
                 `🌍 Language switched to ${languageNames[newLanguage]}`;
             voiceControl.showNotification(switchMessage, '#6f42c1');
